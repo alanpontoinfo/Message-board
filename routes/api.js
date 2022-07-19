@@ -35,6 +35,9 @@ module.exports = function (app) {
               res.send('There was an error saving in post')
             } else {
               res.json(newThread)
+              /*  const url =
+                'https://' + req.headers.host + '/b/' + req.params.board + '/'
+              res.redirect(url)*/
             }
           })
         } else {
@@ -44,12 +47,59 @@ module.exports = function (app) {
               res.send('There was an error saving in post')
             } else {
               res.json(newThread)
+              /* const url =
+                'https://' + req.headers.host + '/b/' + req.params.board + '/'
+              res.redirect(url)*/
             }
           })
         }
       })
     })
     .get((req, res) => {
+      const board = req.params.board
+      BoardModel.findOne({ name: board }, (err, data) => {
+        if (!data) {
+          console.log('No board with this name')
+          res.json({ error: 'No board with this name' })
+        } else {
+          const threads = data.threads.map((thread) => {
+            const { _id, text, created_on, bumped_on, replies } = thread
+            replies.sort((first, second) =>
+              first.created_on < second.created_on ? 1 : -1
+            )
+            let thisReplies = []
+            for (let i = 0; i < 3 && i < replies.length; i++) {
+              let reply = {}
+              const { _id, text, created_on } = replies[i]
+              reply._id = _id
+              reply.text = text
+              reply.created_on = created_on
+              thisReplies.push(reply)
+            }
+            thisReplies.reverse()
+            return {
+              _id,
+              text,
+              created_on,
+              bumped_on,
+              replies: thisReplies,
+              replycount: replies.length,
+            }
+          })
+          threads.sort((first, second) =>
+            first.bumped_on < second.bumped_on ? 1 : -1
+          )
+          let thisThreads = []
+          for (let i = 0; i < 10 && i < threads.length; i++) {
+            thisThreads.push(threads[i])
+          }
+          // console.log("Returned Threads: ");
+          // console.log(thisThreads);
+          res.json(thisThreads)
+        }
+      })
+    })
+    /* .get((req, res) => {
       const board = req.params.board
       BoardModel.findOne({ name: board }, (err, data) => {
         if (!data) {
@@ -81,7 +131,7 @@ module.exports = function (app) {
           res.json(threads)
         }
       })
-    })
+    })*/
     .put((req, res) => {
       console.log('put', req.body)
       const { report_id } = req.body
@@ -95,7 +145,7 @@ module.exports = function (app) {
           reportedThread.reported = true
           reportedThread.bumped_on = date
           boardData.save((err, updatedData) => {
-            res.send('Success')
+            res.send('reported')
           })
         }
       })
@@ -110,13 +160,13 @@ module.exports = function (app) {
         } else {
           let threadToDelete = boardData.threads.id(thread_id)
           if (threadToDelete.delete_password === delete_password) {
-            threadToDelete.text = '[deleted]'
+            threadToDelete.remove()
           } else {
-            res.send('Incorrect Password')
+            res.send('incorrect password')
             return
           }
           boardData.save((err, upadatedData) => {
-            res.send('Success')
+            res.send('success')
           })
         }
       })
@@ -128,20 +178,27 @@ module.exports = function (app) {
       console.log('thread', req.body)
       const { thread_id, text, delete_password } = req.body
       const board = req.params.board
+      const date = new Date().toUTCString()
       const newReply = new ReplyModel({
         text: text,
         delete_password: delete_password,
+        created_on: date,
+        bumped_on: date,
+        reported: false,
       })
       BoardModel.findOne({ name: board }, (err, boardData) => {
         if (!boardData) {
           res.json('error', 'Board not found')
         } else {
-          const date = new Date()
-          let threadToAddReply = boardData.threads.id(thread_id)
-          threadToAddReply.bumped_on = date
-          threadToAddReply.replies.push(newReply)
+          const date = new Date().toUTCString()
+          let addReplyTothread = boardData.threads.id(thread_id)
+          addReplyTothread.bumped_on = date
+          addReplyTothread.replies.push(newReply)
           boardData.save((err, updatedData) => {
             res.json(updatedData)
+            /* const url = 'https://' +  req.headers.host + '/b/' + req.params.board + '/' + req.body.thread_id
+            // console.log(url);
+            res.redirect(url)*/
           })
         }
       })
@@ -155,7 +212,25 @@ module.exports = function (app) {
         } else {
           console.log('data', data)
           const thread = data.threads.id(req.query.thread_id)
-          res.json(thread)
+          const { _id, text, created_on, bumped_on, replies } = thread
+          let thisReplies = []
+          for (let i = 0; i < replies.length; i++) {
+            let reply = {}
+            const { _id, text, created_on } = replies[i]
+            reply._id = _id
+            reply.text = text
+            reply.created_on = created_on
+            thisReplies.push(reply)
+          }
+          let newThread = {}
+          newThread._id = _id
+          newThread.text = text
+          newThread.created_on = created_on
+          newThread.bumped_on = bumped_on
+          newThread.replies = [...thisReplies]
+          newThread.replycount = replies.length
+          res.json(newThread)
+          // res.json(thread)
         }
       })
     })
@@ -168,13 +243,15 @@ module.exports = function (app) {
           res.json({ error: 'No board with this name' })
         } else {
           console.log('data', data)
+          const date = new Date()
           let thread = data.threads.id(thread_id)
           let reply = thread.replies.id(reply_id)
           reply.reported = true
-          reply.bumped_on = new Date()
+          reply.created_on = date
+          reply.bumped_on = date
           data.save((err, updatedData) => {
             if (!err) {
-              res.send('Success')
+              res.send('reported')
             }
           })
         }
@@ -196,14 +273,15 @@ module.exports = function (app) {
             reply.text = '[deleted]'
             // reply.add('<p>' + '[deleted]' + '</p>')
           } else {
-            res.send('Incorrect Password')
+            res.send('incorrect password')
             return
           }
           data.save((err, updatedData) => {
-            if (!err) {
-              res.send('Success')
-              // reply_id.replaceWith('<p>' + '[deleted]' + '</p>')
+            if (err) {
+              console.log('Error in DELETE request: ')
+              console.log(err)
             }
+            res.send('success')
           })
         }
       })
